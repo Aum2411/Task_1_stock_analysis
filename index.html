@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Stock Analysis Agent</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🤖 AI Stock Analysis Agent</h1>
+            <p class="subtitle">Powered by Groq LLM & Real-time Market Data</p>
+        </header>
+
+        <div class="search-section">
+            <div class="search-box">
+                <input 
+                    type="text" 
+                    id="stockSymbol" 
+                    placeholder="Enter stock symbol (e.g., AAPL, TSLA, MSFT)" 
+                    autocomplete="off"
+                >
+                <button id="analyzeBtn" onclick="analyzeStock()">
+                    <span id="btnText">Analyze Stock</span>
+                    <span id="btnLoader" class="loader" style="display: none;"></span>
+                </button>
+            </div>
+            <p class="hint">Try: AAPL, GOOGL, MSFT, TSLA, AMZN, META, NVDA</p>
+        </div>
+
+        <div id="errorMessage" class="error-message" style="display: none;"></div>
+
+        <div id="results" class="results" style="display: none;">
+            <!-- Stock Info Section -->
+            <div class="stock-header">
+                <div class="stock-title">
+                    <h2 id="stockName"></h2>
+                    <span id="stockSymbol2" class="symbol-badge"></span>
+                </div>
+                <div class="price-info">
+                    <div class="current-price" id="currentPrice"></div>
+                    <div class="price-change" id="priceChange"></div>
+                </div>
+            </div>
+
+            <!-- Stock Metrics Grid -->
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <div class="metric-label">30-Day High</div>
+                    <div class="metric-value" id="weekHigh"></div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">30-Day Low</div>
+                    <div class="metric-value" id="weekLow"></div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Volume</div>
+                    <div class="metric-value" id="volume"></div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Avg Volume</div>
+                    <div class="metric-value" id="avgVolume"></div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">Market Cap</div>
+                    <div class="metric-value" id="marketCap"></div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-label">P/E Ratio</div>
+                    <div class="metric-value" id="peRatio"></div>
+                </div>
+            </div>
+
+            <!-- Company Info -->
+            <div class="info-section">
+                <h3>Company Information</h3>
+                <div class="info-content">
+                    <div class="info-item">
+                        <span class="info-label">Sector:</span>
+                        <span id="sector"></span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Industry:</span>
+                        <span id="industry"></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- AI Analysis Section -->
+            <div class="analysis-section">
+                <h3>🤖 AI Analysis</h3>
+                <div id="aiAnalysis" class="analysis-content"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Handle Enter key press
+        document.getElementById('stockSymbol').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                analyzeStock();
+            }
+        });
+
+        function formatNumber(num) {
+            if (num === 'N/A' || num === null || num === undefined) return 'N/A';
+            if (typeof num === 'string') return num;
+            
+            if (num >= 1e12) {
+                return '$' + (num / 1e12).toFixed(2) + 'T';
+            } else if (num >= 1e9) {
+                return '$' + (num / 1e9).toFixed(2) + 'B';
+            } else if (num >= 1e6) {
+                return '$' + (num / 1e6).toFixed(2) + 'M';
+            } else if (num >= 1e3) {
+                return (num / 1e3).toFixed(2) + 'K';
+            }
+            return num.toLocaleString();
+        }
+
+        function formatAnalysis(text) {
+            // Convert markdown-style formatting to HTML
+            text = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+            text = text.replace(/\*(.*?)\*/g, '<em>$1</em>');
+            
+            // Format numbered sections
+            text = text.replace(/(\d+\.\s+[^\n:]+:)/g, '<h4>$1</h4>');
+            
+            // Format bullet points
+            text = text.replace(/^[-•]\s+(.+)$/gm, '<li>$1</li>');
+            text = text.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
+            
+            // Add line breaks
+            text = text.replace(/\n\n/g, '</p><p>');
+            text = '<p>' + text + '</p>';
+            
+            return text;
+        }
+
+        async function analyzeStock() {
+            const symbol = document.getElementById('stockSymbol').value.trim().toUpperCase();
+            
+            if (!symbol) {
+                showError('Please enter a stock symbol');
+                return;
+            }
+
+            // Show loading state
+            document.getElementById('btnText').style.display = 'none';
+            document.getElementById('btnLoader').style.display = 'inline-block';
+            document.getElementById('analyzeBtn').disabled = true;
+            document.getElementById('results').style.display = 'none';
+            document.getElementById('errorMessage').style.display = 'none';
+
+            try {
+                const response = await fetch('/analyze', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ symbol: symbol })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to analyze stock');
+                }
+
+                displayResults(data);
+            } catch (error) {
+                showError(error.message);
+            } finally {
+                // Reset button state
+                document.getElementById('btnText').style.display = 'inline';
+                document.getElementById('btnLoader').style.display = 'none';
+                document.getElementById('analyzeBtn').disabled = false;
+            }
+        }
+
+        function displayResults(data) {
+            const stockData = data.stock_data;
+            const analysis = data.analysis;
+
+            // Update stock header
+            document.getElementById('stockName').textContent = stockData.company_name;
+            document.getElementById('stockSymbol2').textContent = stockData.symbol;
+            document.getElementById('currentPrice').textContent = '$' + stockData.current_price;
+            
+            const priceChangeEl = document.getElementById('priceChange');
+            const changePercent = stockData.price_change_percent;
+            const changeValue = stockData.price_change;
+            priceChangeEl.textContent = `${changeValue >= 0 ? '+' : ''}$${changeValue} (${changePercent >= 0 ? '+' : ''}${changePercent}%)`;
+            priceChangeEl.className = 'price-change ' + (changePercent >= 0 ? 'positive' : 'negative');
+
+            // Update metrics
+            document.getElementById('weekHigh').textContent = '$' + stockData.week_high;
+            document.getElementById('weekLow').textContent = '$' + stockData.week_low;
+            document.getElementById('volume').textContent = formatNumber(stockData.volume);
+            document.getElementById('avgVolume').textContent = formatNumber(stockData.avg_volume);
+            document.getElementById('marketCap').textContent = formatNumber(stockData.market_cap);
+            document.getElementById('peRatio').textContent = 
+                stockData.pe_ratio !== 'N/A' && stockData.pe_ratio !== null 
+                    ? parseFloat(stockData.pe_ratio).toFixed(2) 
+                    : 'N/A';
+
+            // Update company info
+            document.getElementById('sector').textContent = stockData.sector;
+            document.getElementById('industry').textContent = stockData.industry;
+
+            // Update AI analysis
+            document.getElementById('aiAnalysis').innerHTML = formatAnalysis(analysis);
+
+            // Show results
+            document.getElementById('results').style.display = 'block';
+            document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        function showError(message) {
+            const errorEl = document.getElementById('errorMessage');
+            errorEl.textContent = '⚠️ ' + message;
+            errorEl.style.display = 'block';
+            document.getElementById('results').style.display = 'none';
+        }
+    </script>
+</body>
+</html>
